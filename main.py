@@ -10,45 +10,7 @@ import math
 import seaborn as sns
 import pathlib
 
-from gym import logger as gymlogger
-# from gym.wrappers import Monitor
-gymlogger.set_level(40) #error only
-import tensorflow as tf
-import random
-import matplotlib
-# %matplotlib inline
-import math
-import glob
-import io
-import base64
-from IPython.display import HTML
-from IPython import display as ipythondisplay
-
-
-"""
-Utility functions to enable video recording of gym environment and displaying it
-To enable video, just do "env = wrap_env(env)""
-"""
-
-def show_video(save_path):
-  mp4list = glob.glob('%s/*.mp4' %save_path)
-  if len(mp4list) > 0:
-    mp4 = mp4list[0]
-    video = io.open(mp4, 'r+b').read()
-    encoded = base64.b64encode(video)
-    ipythondisplay.display(HTML(data='''<video alt="test" autoplay 
-                loop controls style="height: 400px;">
-                <source src="data:video/mp4;base64,{0}" type="video/mp4" />
-             </video>'''.format(encoded.decode('ascii'))))
-  else: 
-    print("Could not find video")
-    
-
-def wrap_env(env, save_path):
-  env = Monitor(env, save_path, force=True)
-  return env
-
-nbins = 10
+nbins = 10 
 GAMMA = 0.9
 ALPHA = 0.01
 
@@ -85,7 +47,6 @@ def assign_bins(observation, bins):
     """
     state = np.zeros(4)
     for i in range(4):
-        # print(observation)
         state[i] = np.digitize(observation[i], bins[i])
     return state
 
@@ -119,13 +80,13 @@ def initialize_Q():
         Q[state] = {}
         for action in range(env.action_space.n):
             Q[state][action] = 0
-    return Q #q is state-action pair
+    return Q
 
 def play_one_game(bins, Q, eps=0.5):
     """
     train 1 episode
     """
-    observation = env.reset()[0]
+    observation, _ = env.reset() # +is info.
     done = False
     cnt = 0 # number of moves in an episode
     state = get_state_as_string(assign_bins(observation, bins))
@@ -138,6 +99,7 @@ def play_one_game(bins, Q, eps=0.5):
             act = env.action_space.sample() # epsilon greedy
         else:
             act = max_dict(Q[state])[0]
+
         observation, reward, done, _, _ = env.step(act)
 
         total_reward += reward
@@ -162,7 +124,6 @@ def play_many_games(bins, N=10000):
     length = []
     reward = []
     for n in range(N):
-        print(n)
         #eps=0.5/(1+n*10e-3)
         eps = 1.0 / np.sqrt(n+1)
 
@@ -194,7 +155,7 @@ def plot_running_avg(totalrewards,title='Running Average',save=False,name='resul
         plt.savefig(name+'.png',bbox_inches='tight')
     else:
         plt.show()
-
+    
 def play_policy(bins,Q,N=1000,render=False,delay=0.01):
     """
     run an environment using a trained policy
@@ -222,8 +183,7 @@ def play_policy(bins,Q,N=1000,render=False,delay=0.01):
 bins = create_bins()
 
 env = gym.make('CartPole-v0')
-# episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=20000)
-episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=10000)
+episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=20000)
 
 plot_running_avg(episode_rewards)
 
