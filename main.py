@@ -183,9 +183,87 @@ def play_policy(bins,Q,N=1000,render=False,delay=0.01):
 bins = create_bins()
 
 env = gym.make('CartPole-v0')
-episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=20000)
+episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=2000)
 
 plot_running_avg(episode_rewards)
+
+# save trained expert model
+print("export trained expert model...")
+filename = 'expert_Q'
+outfile = open(filename,'wb')
+pickle.dump(expert_Q,outfile)
+outfile.close()
+
+# plot reward distribution for all episodes 
+expertReward=play_policy(bins,expert_Q, N=10000, render=False)
+plt.hist(expertReward,bins=50)
+plt.title("Reward Distribution")
+plt.xlabel("Reward")
+plt.ylabel("Frequency")
+
+# build IRL algorithm
+def sigmoid(arry):
+    sig=[]
+    for i in arry:
+        sig.append(1/(1+math.exp(-i)))           
+    return np.array(sig)
+
+def getFeatureExpectation(Q,N=1000): # get estimated feature expectation by plug-in method
+    observationSum=np.zeros(4)
+    for i in range(N):
+        observation=env.reset()
+        done=False
+        cnt=0
+        while not done:
+            state=get_state_as_string(assign_bins(observation, bins))
+            act=max_dict(Q[state])[0]
+            observation, reward, done, _, _ =env.step(act)
+            observation=sigmoid(observation) # take sigmoid for each dimension of observation
+            observationSum+=(GAMMA**cnt)*observation
+            cnt+=1
+    featureExpectation=observationSum/N
+    
+    print("FeatureExpectation: ",featureExpectation)
+    return featureExpectation
+
+def irl_play_one_game(bins,weight,Q,eps=0.5):
+    observation = env.reset()
+    done = False
+    cnt = 0 # number of moves in an episode
+    state = get_state_as_string(assign_bins(observation, bins))
+    total_reward = 0
+    
+
+    while not done:
+        cnt += 1
+        # np.random.randn() seems to yield a random action 50% of the time ?
+        if np.random.uniform() < eps:
+            act = env.action_space.sample() # epsilon greedy
+        else:
+            act = max_dict(Q[state])[0]
+
+        observation, reward, done, _, _ = env.step(act)
+        
+        #encode observations into state
+        state_new = get_state_as_string(assign_bins(observation, bins))
+        
+        #map observations to 0 and 1
+        observation=sigmoid(observation)
+        
+        #discard the simulation reward, and use the reward function found from irl algorithm
+        reward = np.dot(weight,observation)
+
+        total_reward += reward
+
+        if done and cnt < 200:
+            reward = -1
+
+
+        a1, max_q_s1a1 = max_dict(Q[state_new])
+        Q[state][act] += ALPHA*(reward + GAMMA*max_q_s1a1 - Q[state][act])
+        state, act = state_new, a1
+
+    return total_reward, cnt
 
 if __name__ == "__main__":
     pass
