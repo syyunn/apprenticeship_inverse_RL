@@ -85,7 +85,8 @@ def assign_bins(observation, bins):
     """
     state = np.zeros(4)
     for i in range(4):
-        state[i] = np.digitize(observation[0][i], bins[i])
+        print(observation)
+        state[i] = np.digitize(observation[i], bins[i])
     return state
 
 def get_state_as_string(state):
@@ -124,7 +125,7 @@ def play_one_game(bins, Q, eps=0.5):
     """
     train 1 episode
     """
-    observation = env.reset()
+    observation = env.reset()[0]
     done = False
     cnt = 0 # number of moves in an episode
     state = get_state_as_string(assign_bins(observation, bins))
@@ -162,6 +163,7 @@ def play_many_games(bins, N=10000):
     length = []
     reward = []
     for n in range(N):
+        print(n)
         #eps=0.5/(1+n*10e-3)
         eps = 1.0 / np.sqrt(n+1)
 
