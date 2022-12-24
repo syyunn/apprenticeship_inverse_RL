@@ -85,7 +85,7 @@ def assign_bins(observation, bins):
     """
     state = np.zeros(4)
     for i in range(4):
-        print(observation)
+        # print(observation)
         state[i] = np.digitize(observation[i], bins[i])
     return state
 
@@ -138,7 +138,6 @@ def play_one_game(bins, Q, eps=0.5):
             act = env.action_space.sample() # epsilon greedy
         else:
             act = max_dict(Q[state])[0]
-        test = env.step(act)
         observation, reward, done, _, _ = env.step(act)
 
         total_reward += reward
@@ -223,7 +222,8 @@ def play_policy(bins,Q,N=1000,render=False,delay=0.01):
 bins = create_bins()
 
 env = gym.make('CartPole-v0')
-episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=20000)
+# episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=20000)
+episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=10000)
 
 plot_running_avg(episode_rewards)
 
