@@ -164,7 +164,8 @@ def play_policy(bins,Q,N=1000,render=False,delay=0.01):
     totalReward=[]
     steps=[]
     for n in range(N):
-        observation=env.reset()
+        print(n)
+        observation, _ = env.reset()
         done=False
         episodeReward=0
         while not done:
@@ -174,7 +175,7 @@ def play_policy(bins,Q,N=1000,render=False,delay=0.01):
             state=get_state_as_string(assign_bins(observation, bins))
             act=max_dict(Q[state])[0]
 #             print(act)
-            observation,reward,done,_=env.step(act)
+            observation,reward,done,_,_=env.step(act)
             episodeReward+=reward
         totalReward.append(episodeReward)
     env.close()
@@ -183,23 +184,26 @@ def play_policy(bins,Q,N=1000,render=False,delay=0.01):
 bins = create_bins()
 
 env = gym.make('CartPole-v0')
-episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=2000)
-
-plot_running_avg(episode_rewards)
+# episode_lengths, episode_rewards, expert_Q=play_many_games(bins,N=3000)
+# plot_running_avg(episode_rewards)
 
 # save trained expert model
-print("export trained expert model...")
-filename = 'expert_Q'
-outfile = open(filename,'wb')
-pickle.dump(expert_Q,outfile)
-outfile.close()
+# print("export trained expert model...")
+# filename = 'expert_Q'
+# outfile = open(filename,'wb')
+# pickle.dump(expert_Q,outfile)
+# outfile.close()
+
+with open('expert_Q', 'rb') as f: 
+    expert_Q = pickle.load(f)
 
 # plot reward distribution for all episodes 
-expertReward=play_policy(bins,expert_Q, N=10000, render=False)
-plt.hist(expertReward,bins=50)
-plt.title("Reward Distribution")
-plt.xlabel("Reward")
-plt.ylabel("Frequency")
+# expertReward=play_policy(bins,expert_Q, N=1000, render=False)
+# plt.hist(expertReward,bins=50)
+# plt.title("Reward Distribution")
+# plt.xlabel("Reward")
+# plt.ylabel("Frequency")
+# plt.show()
 
 # build IRL algorithm
 def sigmoid(arry):
@@ -209,9 +213,10 @@ def sigmoid(arry):
     return np.array(sig)
 
 def getFeatureExpectation(Q,N=1000): # get estimated feature expectation by plug-in method
+    # N is the number of episodes
     observationSum=np.zeros(4)
     for i in range(N):
-        observation=env.reset()
+        observation,_=env.reset()
         done=False
         cnt=0
         while not done:
@@ -221,13 +226,13 @@ def getFeatureExpectation(Q,N=1000): # get estimated feature expectation by plug
             observation=sigmoid(observation) # take sigmoid for each dimension of observation
             observationSum+=(GAMMA**cnt)*observation
             cnt+=1
-    featureExpectation=observationSum/N
+    featureExpectation=observationSum/N # equation 5 in the paper
     
     print("FeatureExpectation: ",featureExpectation)
     return featureExpectation
 
 def irl_play_one_game(bins,weight,Q,eps=0.5):
-    observation = env.reset()
+    observation, _ = env.reset()
     done = False
     cnt = 0 # number of moves in an episode
     state = get_state_as_string(assign_bins(observation, bins))
@@ -264,6 +269,118 @@ def irl_play_one_game(bins,weight,Q,eps=0.5):
         state, act = state_new, a1
 
     return total_reward, cnt
+
+def irl_play_many_games(bins,weight,N=10000):
+    Q = initialize_Q()
+    length = []
+    reward = []
+    for n in range(N):
+        eps = 1.0 / np.sqrt(n+1)
+
+        episode_reward, episode_length= irl_play_one_game(bins, weight,Q,eps)
+
+        length.append(episode_length)
+        reward.append(episode_reward) 
+    print("Avg Length %d"%(np.average(length)))
+    print("standard deviation %d"%(np.std(length)))
+    return length, reward, Q
+
+expertExpectation=getFeatureExpectation(expert_Q,N=100000) #get expert feature expectation, then use it to calculate weight.
+# \mu(\pi_E) in the paper
+
+
+#either terminate with margin or iteration
+epislon=0.00002
+N=10
+
+weight=[]
+featureExpectation=[]
+featureExpectationBar=[]
+learnedQ=[]
+margin=[]
+avgEpisodeLength=[]
+
+for i in range(N):
+    print("Iteration: ",i)
+    if i==0: #step1, initialization
+        initialQ=initialize_Q() #give random initial policy
+        featureExpectation.append(getFeatureExpectation(initialQ))
+        print("expert feature Expectation: ", expertExpectation)
+        learnedQ.append(initialQ) #put in the initial policy
+        weight.append(np.zeros(4)) #put in a dummy weight
+        margin.append(1) #put in a dummy margin
+    else:#first iter of step 2
+        if i==1:
+            featureExpectationBar.append(featureExpectation[i-1])
+            weight.append(expertExpectation-featureExpectation[i-1])
+            margin.append(norm((expertExpectation-featureExpectationBar[i-1]),2))
+
+            print("margin: ",margin[i])
+            print("weight: ",weight[i])
+
+        else: #iter 2 and on of step 2
+            A=featureExpectationBar[i-2]
+            B=featureExpectation[i-1]-A
+            C=expertExpectation-featureExpectationBar[i-2]
+            featureExpectationBar.append(A+(np.dot(B,C)/np.dot(B,B))*(B))
+
+            weight.append(expertExpectation-featureExpectationBar[i-1]) # update weight
+            margin.append(norm((expertExpectation-featureExpectationBar[i-1]),2))
+
+            print("margin: ",margin[i])
+            print("weight: ",weight[i])
+            
+        #step3,terminate condition    
+        if (margin[i]<=epislon):
+            break
+
+        #step4
+        episode_lengths, episode_rewards, learnedQ_i= irl_play_many_games(bins,weight[i])
+        learnedQ.append(learnedQ_i)
+        avgEpisodeLength.append(episode_lengths)
+        #step5
+        featureExpectation.append(getFeatureExpectation(learnedQ[i]))
+    
+    print("")
+
+print("export trained IRL model...")
+filename = 'learnedQ'
+outfile = open(filename,'wb')
+pickle.dump(learnedQ,outfile)
+outfile.close()
+
+#showing the performance of each student
+for i in range(0,len(avgEpisodeLength)):
+    title="Student "+str(i+1)+" Running Average"
+    plot_running_avg(avgEpisodeLength[i],title=title,save=True,name=title)
+
+#Plotting Convergence Rate
+plt.plot(margin)
+plt.title("Distance To Expert Feature Distribution")
+plt.xlabel("Iteration")
+plt.ylabel("Distance")
+plt.yscale("log")
+plt.grid()
+plt.savefig("Distance To Expert Feature Distribution")
+
+#showing the performance of each student relative to the performance of the expert
+iteration=[]
+relativePerformance=[]
+studentPerformance=[]
+
+for i in avgEpisodeLength:
+    studentPerformance.append(np.average(i))
+
+for i in range(np.size(studentPerformance)):
+    iteration.append(i)
+    relativePerformance.append(studentPerformance[i]/200)
+    
+plt.plot(iteration,relativePerformance)
+plt.xlabel("Iteration")
+plt.ylabel("Relative Performance to Expert Policy")
+plt.title("Training Result")
+plt.grid()
+plt.savefig("Distance To Expert Feature Distribution")
 
 if __name__ == "__main__":
     pass
